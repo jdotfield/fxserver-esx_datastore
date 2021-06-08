@@ -7,27 +7,19 @@ MySQL.ready(function()
 	local result = MySQL.Sync.fetchAll('SELECT * FROM datastore')
 
 	for i=1, #result, 1 do
-		local name, label, shared = result[i].name, result[i].label, result[i].shared
-		local result2 = MySQL.Sync.fetchAll('SELECT * FROM datastore_data WHERE name = @name', {
-			['@name'] = name
-		})
+		local name, shared = result[i].name, result[i].shared
 
-		if shared == 0 then
+        if shared == 0 then
 			table.insert(DataStoresIndex, name)
 			DataStores[name] = {}
+        else
+            local result2 = MySQL.Sync.fetchAll('SELECT * FROM datastore_data WHERE name = @name', {
+                ['@name'] = name
+            })
 
-			for j=1, #result2, 1 do
-				local storeName  = result2[j].name
-				local storeOwner = result2[j].owner
-				local storeData  = (result2[j].data == nil and {} or json.decode(result2[j].data))
-				local dataStore  = CreateDataStore(storeName, storeOwner, storeData)
+            local data
 
-				table.insert(DataStores[name], dataStore)
-			end
-		else
-			local data
-
-			if #result2 == 0 then
+            if #result2 == 0 then
 				MySQL.Sync.execute('INSERT INTO datastore_data (name, owner, data) VALUES (@name, NULL, \'{}\')', {
 					['@name'] = name
 				})
@@ -37,26 +29,30 @@ MySQL.ready(function()
 				data = json.decode(result2[1].data)
 			end
 
-			local dataStore = CreateDataStore(name, nil, data)
-			SharedDataStores[name] = dataStore
-		end
+			SharedDataStores[name] = CreateDataStore(name, nil, data)
+        end
 	end
 end)
 
 function GetDataStore(name, owner)
-	for i=1, #DataStores[name], 1 do
-		if DataStores[name][i].owner == owner then
-			return DataStores[name][i]
-		end
-	end
+    if not DataStores[name][owner] then
+        MySQL.Sync.execute('INSERT INTO datastore_data (name, owner, data) VALUES (@name, @owner, \'{}\')', {
+            ['@name'] = name,
+            ['@owner'] = owner
+        })
+
+        DataStores[name][owner] = CreateDataStore(name, owner, {})
+    end
+
+    return DataStores[name][owner]
 end
 
 function GetDataStoreOwners(name)
 	local identifiers = {}
 
-	for i=1, #DataStores[name], 1 do
-		table.insert(identifiers, DataStores[name][i].owner)
-	end
+    for owner, _ in pairs(DataStores[name]) do
+        table.insert(identifiers, owner)
+    end
 
 	return identifiers
 end
@@ -78,19 +74,23 @@ AddEventHandler('esx_datastore:getSharedDataStore', function(name, cb)
 end)
 
 AddEventHandler('esx:playerLoaded', function(playerId, xPlayer)
+    MySQL.Async.fetchAll('SELECT * FROM datastore_data WHERE owner = @owner', {
+        ['@owner'] = xPlayer.identifier
+    }, function(result)
+        for i=1, #result, 1 do
+            DataStores[result[i].name][result[i].owner] = (result[i].data == nil and {} or json.decode(result[i].data))
+        end
+    end)
+end)
+
+AddEventHandler('esx:playerDropped', function(playerId, reason)
+    local xPlayer = ESX.GetPlayerFromId(playerId)
+
 	for i=1, #DataStoresIndex, 1 do
 		local name = DataStoresIndex[i]
-		local dataStore = GetDataStore(name, xPlayer.identifier)
 
-		if not dataStore then
-			MySQL.Async.execute('INSERT INTO datastore_data (name, owner, data) VALUES (@name, @owner, @data)', {
-				['@name']  = name,
-				['@owner'] = xPlayer.identifier,
-				['@data']  = '{}'
-			})
-
-			dataStore = CreateDataStore(name, xPlayer.identifier, {})
-			table.insert(DataStores[name], dataStore)
-		end
+        if DataStores[name][xPlayer.identifier] then
+            DataStores[name][xPlayer.identifier] = nil
+        end
 	end
 end)
