@@ -36,21 +36,19 @@ end)
 
 function GetDataStore(name, owner)
     if not DataStores[name][owner] then
-		MySQL.Sync.fetchAll('SELECT data FROM datastore_data WHERE name = @name AND owner = @owner LIMIT 1', {
+		local result = MySQL.Sync.fetchAll('SELECT data FROM datastore_data WHERE name = @name AND owner = @owner LIMIT 1', {
             ['@name'] = name,
             ['@owner'] = owner
-        }, function(result)
-			if result[1] then
-				DataStores[name][owner] = CreateDataStore(name, owner, json.decode(result[1].data))
-			else
-				MySQL.Sync.execute('INSERT INTO datastore_data (name, owner, data) VALUES (@name, @owner, \'{}\')', {
+        })
+		if result[1] then
+			DataStores[name][owner] = CreateDataStore(name, owner, json.decode(result[1].data))
+		else
+			MySQL.Sync.execute('INSERT INTO datastore_data (name, owner, data) VALUES (@name, @owner, \'{}\')', {
 					['@name'] = name,
             		['@owner'] = owner
-				}, function(result)
-					DataStores[name][owner] = CreateDataStore(name, owner, {})
-				end)
-			end
-		end)
+			})
+			DataStores[name][owner] = CreateDataStore(name, owner, {})
+		end
     end
 
     return DataStores[name][owner]
