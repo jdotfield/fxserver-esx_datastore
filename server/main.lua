@@ -36,12 +36,21 @@ end)
 
 function GetDataStore(name, owner)
     if not DataStores[name][owner] then
-        MySQL.Sync.execute('INSERT INTO datastore_data (name, owner, data) VALUES (@name, @owner, \'{}\')', {
+		MySQL.Sync.fetchAll('SELECT data FROM datastore_data WHERE name = @name AND owner = @owner LIMIT 1', {
             ['@name'] = name,
             ['@owner'] = owner
-        })
-
-        DataStores[name][owner] = CreateDataStore(name, owner, {})
+        }, function(result)
+			if result[1] then
+				DataStores[name][owner] = CreateDataStore(name, owner, json.decode(result[1].data))
+			else
+				MySQL.Sync.execute('INSERT INTO datastore_data (name, owner, data) VALUES (@name, @owner, \'{}\')', {
+					['@name'] = name,
+            		['@owner'] = owner
+				}, function(result)
+					DataStores[name][owner] = CreateDataStore(name, owner, {})
+				end)
+			end
+		end)
     end
 
     return DataStores[name][owner]
@@ -74,11 +83,13 @@ AddEventHandler('esx_datastore:getSharedDataStore', function(name, cb)
 end)
 
 AddEventHandler('esx:playerLoaded', function(playerId, xPlayer)
-    MySQL.Async.fetchAll('SELECT * FROM datastore_data WHERE owner = @owner', {
+    MySQL.Async.fetchAll('SELECT name, data FROM datastore_data WHERE owner = @owner', {
         ['@owner'] = xPlayer.identifier
     }, function(result)
         for i=1, #result, 1 do
-            DataStores[result[i].name][result[i].owner] = (result[i].data == nil and {} or json.decode(result[i].data))
+			local name, data = result[i].name, result[i].data == nil and {} or json.decode(result[i].data)
+			local dataStore = CreateDataStore(name, xPlayer.identifier, data)
+            DataStores[name][xPlayer.identifier] = dataStore
         end
     end)
 end)
